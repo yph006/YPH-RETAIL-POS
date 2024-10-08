@@ -28,7 +28,19 @@ def create_tables():
         );
     ''')
 
-    # Note: We are not creating 'stock_transactions' table as it already exists
+    # Create stock_transaction table if it doesn't exist
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS stock_transaction (
+            transaction_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id TEXT NOT NULL,
+            quantity INTEGER NOT NULL,
+            transaction_type TEXT NOT NULL,
+            transaction_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            remarks TEXT,
+            FOREIGN KEY (product_id) REFERENCES products(product_id)
+        );
+    ''')
+
     conn.commit()
     conn.close()
 
@@ -125,15 +137,11 @@ def add_to_cart():
 
         update_cart_display()
 
-        # Remove selection before updating the display
+        # Reset quantity and selections
+        quantity_var.set(1)
         product_list.selection_remove(selected_item)
         cart_list.selection_remove(cart_list.selection())
 
-        update_cart_display()
-
-        # Reset quantity
-        quantity_var.set(1)
-        
 # Function to update the selected cart item's quantity
 def update_cart():
     selected_item = cart_list.selection()
@@ -143,14 +151,11 @@ def update_cart():
         cart_item = cart_items[item_index]
         cart_item['quantity'] = current_qty
         cart_item['total_price'] = cart_item['unit_price'] * current_qty
-
-        # Remove selection before updating the display
-        cart_list.selection_remove(selected_item)
-
         update_cart_display()
 
         # Reset quantity and selections
         quantity_var.set(1)
+        cart_list.selection_remove(selected_item)
         product_list.selection_remove(product_list.selection())
 
 # Function to remove the selected entry from the cart
@@ -158,10 +163,6 @@ def remove_from_cart():
     selected_item = cart_list.selection()
     if selected_item:
         item_index = cart_list.index(selected_item)
-
-        # Remove selection before updating the display
-        cart_list.selection_remove(selected_item)
-
         del cart_items[item_index]  # Remove the selected item from the cart
         update_cart_display()
 
@@ -203,11 +204,11 @@ def record_sale_and_update_stock():
                 WHERE product_id = ?
             ''', (quantity, product_id))
 
-            # Log the transaction in stock_transactions table
+            # Log the transaction in stock_transaction table
             cursor.execute('''
-                INSERT INTO stock_transactions (product_id, quantity, transaction_type, remarks)
-                VALUES (?, ?, ?, ?)
-            ''', (product_id, -quantity, 'Sale', 'sales'))  # Negative quantity to indicate deduction
+                INSERT INTO stock_transaction (product_id, quantity, transaction_type, remarks)
+                VALUES (?, ?, 'Sale', 'sales')
+            ''', (product_id, -quantity))  # Negative quantity to indicate deduction
 
         conn.commit()
     except Exception as e:

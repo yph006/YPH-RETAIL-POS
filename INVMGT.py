@@ -18,12 +18,16 @@ class InventoryManagementApp:
         search_label.grid(row=0, column=0, padx=10, pady=10, sticky="w")
         self.search_entry = tk.Entry(self.root, width=30)
         self.search_entry.grid(row=0, column=1, padx=10, pady=10)
-        self.search_entry.bind("<KeyRelease>", self.search_products)
+        self.search_entry.bind("<KeyRelease>", self.search_and_filter_products)
 
-        filters_label = tk.Label(self.root, text="Filters:")
+        filters_label = tk.Label(self.root, text="Category Filter:")
         filters_label.grid(row=0, column=2, padx=10, pady=10, sticky="w")
-        self.filters_entry = tk.Entry(self.root, width=30)
-        self.filters_entry.grid(row=0, column=3, padx=10, pady=10)
+        self.category_combobox = ttk.Combobox(self.root, state="readonly", width=30)
+        self.category_combobox.grid(row=0, column=3, padx=10, pady=10)
+        self.category_combobox.bind("<<ComboboxSelected>>", self.search_and_filter_products)
+
+        # Populate the combobox with categories when the app starts
+        self.load_categories()
 
         # Product Table (Treeview)
         self.table = ttk.Treeview(self.root, columns=("product_id", "product_name", "sku", "category_id", "category_name", "current_stock", "safety_stock", "target_stock"), show="headings")
@@ -100,8 +104,6 @@ class InventoryManagementApp:
 
     def create_tables(self):
         """Create the stock_management and stock_transactions tables."""
-        
-        # Table 1: stock_management for tracking current stock, safety stock, and target stock
         self.cursor.execute('''
         CREATE TABLE IF NOT EXISTS stock_management (
             product_id TEXT PRIMARY KEY,
@@ -111,8 +113,7 @@ class InventoryManagementApp:
             FOREIGN KEY (product_id) REFERENCES products(product_id)
         );
         ''')
-        
-        # Table 2: stock_transactions for tracking all stock-related transactions
+
         self.cursor.execute('''
         CREATE TABLE IF NOT EXISTS stock_transactions (
             transaction_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -124,16 +125,22 @@ class InventoryManagementApp:
             FOREIGN KEY (product_id) REFERENCES products(product_id)
         );
         ''')
-
         self.conn.commit()
+
+    def load_categories(self):
+        """Fetch categories from the products table and populate the combobox."""
+        self.cursor.execute("SELECT DISTINCT category_name FROM products")
+        categories = [row[0] for row in self.cursor.fetchall()]
+        categories.insert(0, 'All')  # Insert 'All' option for no filtering
+        self.category_combobox['values'] = categories
+        self.category_combobox.current(0)  # Set default value to 'All'
 
     def load_products(self):
         """Fetch data from stock_management and products, calculate stock, and display in the table."""
         # Clear the table
         for row in self.table.get_children():
             self.table.delete(row)
-        
-        # Query to fetch product data, current stock, safety stock, and target stock
+
         query = """
         SELECT p.product_id, p.product_name, p.sku, p.category_id, p.category_name,
                s.current_stock, s.safety_stock, s.target_stock
@@ -147,33 +154,35 @@ class InventoryManagementApp:
         for row in rows:
             self.table.insert("", "end", values=row)
 
-    def search_products(self, event):
-        """Search products based on user input."""
+    def search_and_filter_products(self, event):
+        """Search and filter products based on user input and selected category."""
         search_term = self.search_entry.get()
+        selected_category = self.category_combobox.get()
+
         # Clear the table
         for row in self.table.get_children():
             self.table.delete(row)
-        
+
         query = """
         SELECT p.product_id, p.product_name, p.sku, p.category_id, p.category_name,
                s.current_stock, s.safety_stock, s.target_stock
         FROM products p
         LEFT JOIN stock_management s ON p.product_id = s.product_id
-        WHERE p.product_name LIKE ? OR p.sku LIKE ? OR p.category_name LIKE ?
+        WHERE (p.product_id LIKE ? OR p.product_name LIKE ? OR p.sku LIKE ? OR p.category_name LIKE ?)
         """
-        self.cursor.execute(query, (f'%{search_term}%', f'%{search_term}%', f'%{search_term}%'))
+
+        # If a specific category is selected, add it to the WHERE clause
+        if selected_category != 'All':
+            query += " AND p.category_name = ?"
+            self.cursor.execute(query, (f'%{search_term}%', f'%{search_term}%', f'%{search_term}%', f'%{search_term}%', selected_category))
+        else:
+            self.cursor.execute(query, (f'%{search_term}%', f'%{search_term}%', f'%{search_term}%', f'%{search_term}%'))
+
         rows = self.cursor.fetchall()
 
         # Insert data into the table
         for row in rows:
             self.table.insert("", "end", values=row)
-
-    def get_selected_product_id(self):
-        """Helper function to get the selected product's ID from the table."""
-        selected = self.table.focus()
-        if selected:
-            return self.table.item(selected)['values'][0]
-        return None
 
     def add_stock(self):
         """Add stock to a selected product and update stock_management."""
@@ -385,6 +394,13 @@ class InventoryManagementApp:
             messagebox.showerror("Error", str(ve))
         except Exception as e:
             messagebox.showerror("Error", str(e))
+
+    def get_selected_product_id(self):
+        """Helper function to get the selected product's ID from the table."""
+        selected = self.table.focus()
+        if selected:
+            return self.table.item(selected)['values'][0]
+        return None
 
 if __name__ == "__main__":
     root = tk.Tk()
